@@ -10,20 +10,56 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 st.set_page_config(page_title="Dashboard Polinomial", layout="wide")
 
-# === Load Data ===
-df = pd.read_csv("db_sim_polinomial.csv", sep=',')
-df['date'] = pd.to_datetime(df['date'], format="%d/%m/%Y")
-original_df = df.copy()
+# === Upload de CSV ===
+st.markdown("## 📁 Importar Dataset")
+with st.expander("⬆️ Carregar CSV personalizado"):
+    st.markdown("O arquivo deve conter pelo menos as colunas:")
+    st.markdown("- `date`: datas no formato dd/mm/yyyy")
+    st.markdown("- `size_db`, `cpu`, `mem`: variáveis alvo")
+    st.markdown(
+        "Todas as colunas após `mem` serão consideradas variáveis explicativas.")
+    uploaded_file = st.file_uploader("Escolha o CSV", type="csv")
 
+if uploaded_file:
+    st.session_state['uploaded'] = True
+    df = pd.read_csv(uploaded_file, sep=',', decimal='.')
+
+    required_cols = ['date', 'size_db', 'cpu', 'mem']
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        st.error(
+            f"❌ O CSV está faltando as colunas obrigatórias: {', '.join(missing_cols)}")
+        st.stop()
+
+    try:
+        df['date'] = pd.to_datetime(df['date'], format="%d/%m/%Y")
+    except Exception:
+        st.error("❌ A coluna `date` deve estar no formato dd/mm/yyyy")
+        st.stop()
+else:
+    st.session_state['uploaded'] = False
+    st.warning(
+        "⚠️ Nenhum arquivo CSV carregado. Por favor, carregue um arquivo para iniciar a análise.")
+    st.stop()
+
+# === Requer upload antes de continuar ===
+if 'uploaded' not in st.session_state or not st.session_state['uploaded']:
+    st.stop()
+
+original_df = df.copy()
 # === Sidebar reorganizada ===
-filtrar_data = st.sidebar.checkbox("Filtrar por intervalo de datas", value=True)
+filtrar_data = st.sidebar.checkbox(
+    "Filtrar por intervalo de datas", value=True)
 st.sidebar.header("Filtros de Data")
 data_min = df['date'].min().date()
 data_max = df['date'].max().date()
 col1, col2 = st.sidebar.columns(2)
-data_inicial = col1.date_input("Data inicial", value=data_min, min_value=data_min, max_value=data_max, key="input_data_inicial")
-data_final = col2.date_input("Data final", value=data_max, min_value=data_min, max_value=data_max, key="input_data_final")
-data_range = st.sidebar.slider("Intervalo de datas", min_value=data_min, max_value=data_max, value=(data_min, data_max), key="slider_datas")
+data_inicial = col1.date_input("Data inicial", value=data_min,
+                               min_value=data_min, max_value=data_max, key="input_data_inicial")
+data_final = col2.date_input("Data final", value=data_max,
+                             min_value=data_min, max_value=data_max, key="input_data_final")
+data_range = st.sidebar.slider("Intervalo de datas", min_value=data_min,
+                               max_value=data_max, value=(data_min, data_max), key="slider_datas")
 
 
 st.sidebar.markdown("---")
@@ -34,8 +70,8 @@ with st.sidebar.expander("⚙️ Parâmetros do Modelo"):
         "Janela da média móvel (dias)", min_value=3, max_value=30, value=7, step=1, key="slider_mm")
 
 # === Parâmetros e variáveis explicativas ===
-variaveis_exp = ['clientes_ativos', 'clientes_novos',
-                 'clientes_excluidos', 'media_reports_clientes', 'media_reports_apps']
+variaveis_exp = df.columns.tolist()
+variaveis_exp = variaveis_exp[variaveis_exp.index('mem') + 1:]  # após memória
 st.sidebar.markdown("---")
 with st.sidebar.expander("📦 Valores Futuros Customizados"):
     usar_valores_custom = st.checkbox(
@@ -65,7 +101,7 @@ with tab1:
     # Valores máximos e mínimos
     st.subheader("📌 Destaques de Consumo")
     col1, col2, col3 = st.columns(3)
-    colunas = [('size_tb', 'DB (TB)', col1),
+    colunas = [('size_db', 'DB (TB)', col1),
                ('cpu', 'CPU (%)', col2), ('mem', 'Memória (%)', col3)]
     for col, label, bloco in colunas:
         max_val = df[col].max()
@@ -73,28 +109,40 @@ with tab1:
         max_date = df[df[col] == max_val]['date'].iloc[0].strftime('%d/%m/%Y')
         min_date = df[df[col] == min_val]['date'].iloc[0].strftime('%d/%m/%Y')
         with bloco:
-            st.metric(label=f"{label} Máximo", value=f"{max_val:.2f}", delta=f"em {max_date}")
-            st.metric(label=f"{label} Mínimo", value=f"{min_val:.2f}", delta=f"em {min_date}")
+            st.metric(label=f"{label} Máximo",
+                      value=f"{max_val:.2f}", delta=f"em {max_date}")
+            st.metric(label=f"{label} Mínimo",
+                      value=f"{min_val:.2f}", delta=f"em {min_date}")
 
     # Novos destaques: totais e médias semanais
     st.markdown("---")
-    st.subheader("📊 Métricas de Atividade dos Clientes")
-    total_ativos = df['clientes_ativos'].max()
-    semanas = (df['date'].max() - df['date'].min()).days / 7
-    media_novos = df['clientes_novos'].sum() / semanas
-    media_excluidos = df['clientes_excluidos'].sum() / semanas
-    media_reports_clientes = df['media_reports_clientes'].sum() / semanas
-    media_reports_apps = df['media_reports_apps'].sum() / semanas
+    st.subheader("📊 Métricas de Atividade")
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.metric("Total de Clientes Ativos", f"{total_ativos:.0f}")
-        st.metric("Média Novos/semana", f"{media_novos:.1f}")
-    with c2:
-        st.metric("Média Excluídos/semana", f"{media_excluidos:.1f}")
-        st.metric("Média Reports (Clientes)", f"{media_reports_clientes:.1f}")
-    with c3:
-        st.metric("Média Reports (Apps)", f"{media_reports_apps:.1f}")
+    col_exp_sel, col_aggr_sel = st.columns(2)
+    with col_exp_sel:
+        exp_vars_selecionadas = st.multiselect(
+            "Variáveis para análise", options=variaveis_exp, default=variaveis_exp)
+    with col_aggr_sel:
+        tipo_agregacao = st.selectbox("Tipo de agregação", options=[
+                                      'média semanal', 'soma total'])
+
+    # total_ativos = df['clientes_ativos'].max()
+    semanas = (df['date'].max() - df['date'].min()).days / 7
+
+    agregados = {}
+    for var in exp_vars_selecionadas:
+        if tipo_agregacao == 'média semanal':
+            agregados[var] = df[var].sum() / semanas
+        else:
+            agregados[var] = df[var].sum()
+
+        cols = st.columns(len(exp_vars_selecionadas))
+    for i, var in enumerate(exp_vars_selecionadas):
+        with cols[i]:
+            label = var.replace('_', ' ').capitalize()
+            val = agregados[var]
+            unidade = "/semana" if tipo_agregacao == 'média semanal' else " total"
+            st.metric(f"{label} ({unidade})", f"{val:.1f}")
         max_val = df[col].max()
         min_val = df[col].min()
         max_date = df[df[col] == max_val]['date'].iloc[0].strftime('%d/%m/%Y')
@@ -102,7 +150,7 @@ with tab1:
 
     # === Gráficos suavizados ===
     X_poly = df[variaveis_exp]
-    y_size = df['size_tb']
+    y_size = df['size_db']
     y_cpu = df['cpu']
     y_mem = df['mem']
 
@@ -119,7 +167,7 @@ with tab1:
 
     fig_size = go.Figure()
     fig_size.add_trace(go.Scatter(
-        x=df['date'], y=df['size_tb'].rolling(window=media_movel_janela * 2, min_periods=1).mean(), mode='lines', name='Tamanho DB (TB) - Suavizado'))
+        x=df['date'], y=df['size_db'].rolling(window=media_movel_janela * 2, min_periods=1).mean(), mode='lines', name='Tamanho DB (TB) - Suavizado'))
     fig_size.update_layout(title='Tamanho da Base de Dados', yaxis_title='TB')
 
     fig_cpu_mem = go.Figure()
@@ -131,7 +179,7 @@ with tab1:
         title='Consumo de CPU e Memória', yaxis_title='%')
 
     # Tendência com média móvel
-
+    st.markdown("---")
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("📊 Tamanho da Base de Dados")
@@ -142,15 +190,15 @@ with tab1:
 
     # Gráfico de tendência após os principais
     st.subheader(f"📈 Tendência (Média Móvel {media_movel_janela} dias)")
-    df_mm = df[['date', 'size_tb', 'cpu', 'mem']].copy()
-    df_mm['size_tb_mm'] = df_mm['size_tb'].rolling(
+    df_mm = df[['date', 'size_db', 'cpu', 'mem']].copy()
+    df_mm['size_db_mm'] = df_mm['size_db'].rolling(
         window=media_movel_janela).mean()
     df_mm['cpu_mm'] = df_mm['cpu'].rolling(window=media_movel_janela).mean()
     df_mm['mem_mm'] = df_mm['mem'].rolling(window=media_movel_janela).mean()
 
     fig_trend = go.Figure()
     fig_trend.add_trace(go.Scatter(
-        x=df_mm['date'], y=df_mm['size_tb_mm'], mode='lines', name='DB MM'))
+        x=df_mm['date'], y=df_mm['size_db_mm'], mode='lines', name='DB MM'))
     fig_trend.add_trace(go.Scatter(
         x=df_mm['date'], y=df_mm['cpu_mm'], mode='lines', name='CPU MM'))
     fig_trend.add_trace(go.Scatter(
@@ -190,16 +238,15 @@ with tab1:
         future_X_opt[col] = future_X[col] * 1.1  # +10%
         future_X_pess[col] = future_X[col] * 0.9  # -10%
 
-    
     df_futuro = pd.DataFrame({
         'date': future_dates,
-        'size_tb_pred': future_size_pred,
+        'size_db_pred': future_size_pred,
         'cpu_pred': future_cpu_pred,
         'mem_pred': future_mem_pred,
-        'size_tb_opt': modelo_size.predict(future_X_opt),
+        'size_db_opt': modelo_size.predict(future_X_opt),
         'cpu_opt': modelo_cpu.predict(future_X_opt),
         'mem_opt': modelo_mem.predict(future_X_opt),
-        'size_tb_pess': modelo_size.predict(future_X_pess),
+        'size_db_pess': modelo_size.predict(future_X_pess),
         'cpu_pess': modelo_cpu.predict(future_X_pess),
         'mem_pess': modelo_mem.predict(future_X_pess)
     })
@@ -207,27 +254,27 @@ with tab1:
     # Projeções e erros
     df_pred = pd.DataFrame({
         'date': df['date'],
-        'size_tb_real': y_size,
-        'size_tb_pred': y_pred_size,
+        'size_db_real': y_size,
+        'size_db_pred': y_pred_size,
         'cpu_real': y_cpu,
         'cpu_pred': y_pred_cpu,
         'mem_real': y_mem,
         'mem_pred': y_pred_mem
     })
 
-    df_pred['erro_size'] = df_pred['size_tb_real'] - df_pred['size_tb_pred']
+    df_pred['erro_size'] = df_pred['size_db_real'] - df_pred['size_db_pred']
     df_pred['erro_cpu'] = df_pred['cpu_real'] - df_pred['cpu_pred']
     df_pred['erro_mem'] = df_pred['mem_real'] - df_pred['mem_pred']
 
     rmse_size = mean_squared_error(
-        df_pred['size_tb_real'], df_pred['size_tb_pred']) ** 0.5
+        df_pred['size_db_real'], df_pred['size_db_pred']) ** 0.5
     rmse_cpu = mean_squared_error(
         df_pred['cpu_real'], df_pred['cpu_pred']) ** 0.5
     rmse_mem = mean_squared_error(
         df_pred['mem_real'], df_pred['mem_pred']) ** 0.5
 
     mae_size = mean_absolute_error(
-        df_pred['size_tb_real'], df_pred['size_tb_pred'])
+        df_pred['size_db_real'], df_pred['size_db_pred'])
     mae_cpu = mean_absolute_error(df_pred['cpu_real'], df_pred['cpu_pred'])
     mae_mem = mean_absolute_error(df_pred['mem_real'], df_pred['mem_pred'])
 
@@ -239,37 +286,50 @@ with tab2:
     st.header("Modelagem Estatística")
 
     st.subheader("📈 Projeções com Regressão Polinomial")
-    st.markdown(f"Projeção dos próximos {future_days} dias com base nas variáveis explicativas.")
+    st.markdown(
+        f"Projeção dos próximos {future_days} dias com base nas variáveis explicativas.")
 
     st.markdown("### 📊 Cenário Base")
     col_base1, col_base2 = st.columns(2)
     with col_base1:
         fig_base_db = go.Figure()
-        fig_base_db.add_trace(go.Scatter(x=df_futuro['date'], y=df_futuro['size_tb_pred'], mode='lines', name='Tamanho DB'))
+        fig_base_db.add_trace(go.Scatter(
+            x=df_futuro['date'], y=df_futuro['size_db_pred'], mode='lines', name='Tamanho DB'))
         fig_base_db.update_layout(title='DB - Cenário Base', yaxis_title='TB')
         st.plotly_chart(fig_base_db, use_container_width=True)
     with col_base2:
         fig_base_cpu_mem = go.Figure()
-        fig_base_cpu_mem.add_trace(go.Scatter(x=df_futuro['date'], y=df_futuro['cpu_pred'], mode='lines', name='CPU'))
-        fig_base_cpu_mem.add_trace(go.Scatter(x=df_futuro['date'], y=df_futuro['mem_pred'], mode='lines', name='Memória'))
-        fig_base_cpu_mem.update_layout(title='CPU / Memória - Cenário Base', yaxis_title='%')
+        fig_base_cpu_mem.add_trace(go.Scatter(
+            x=df_futuro['date'], y=df_futuro['cpu_pred'], mode='lines', name='CPU'))
+        fig_base_cpu_mem.add_trace(go.Scatter(
+            x=df_futuro['date'], y=df_futuro['mem_pred'], mode='lines', name='Memória'))
+        fig_base_cpu_mem.update_layout(
+            title='CPU / Memória - Cenário Base', yaxis_title='%')
         st.plotly_chart(fig_base_cpu_mem, use_container_width=True)
 
     st.markdown("### 🌟 Cenário Otimista vs Pessimista")
     col_s1, col_s2 = st.columns(2)
     with col_s1:
         fig_s_db = go.Figure()
-        fig_s_db.add_trace(go.Scatter(x=df_futuro['date'], y=df_futuro['size_tb_opt'], mode='lines', name='DB Otimista', line=dict(dash='dash')))
-        fig_s_db.add_trace(go.Scatter(x=df_futuro['date'], y=df_futuro['size_tb_pess'], mode='lines', name='DB Pessimista', line=dict(dash='dot')))
-        fig_s_db.update_layout(title='DB - Cenários Alternativos', yaxis_title='TB')
+        fig_s_db.add_trace(go.Scatter(
+            x=df_futuro['date'], y=df_futuro['size_db_opt'], mode='lines', name='DB Otimista', line=dict(dash='dash')))
+        fig_s_db.add_trace(go.Scatter(
+            x=df_futuro['date'], y=df_futuro['size_db_pess'], mode='lines', name='DB Pessimista', line=dict(dash='dot')))
+        fig_s_db.update_layout(
+            title='DB - Cenários Alternativos', yaxis_title='TB')
         st.plotly_chart(fig_s_db, use_container_width=True)
     with col_s2:
         fig_s_cpu_mem = go.Figure()
-        fig_s_cpu_mem.add_trace(go.Scatter(x=df_futuro['date'], y=df_futuro['cpu_opt'], mode='lines', name='CPU Otimista', line=dict(dash='dash')))
-        fig_s_cpu_mem.add_trace(go.Scatter(x=df_futuro['date'], y=df_futuro['cpu_pess'], mode='lines', name='CPU Pessimista', line=dict(dash='dot')))
-        fig_s_cpu_mem.add_trace(go.Scatter(x=df_futuro['date'], y=df_futuro['mem_opt'], mode='lines', name='Memória Otimista', line=dict(dash='dash')))
-        fig_s_cpu_mem.add_trace(go.Scatter(x=df_futuro['date'], y=df_futuro['mem_pess'], mode='lines', name='Memória Pessimista', line=dict(dash='dot')))
-        fig_s_cpu_mem.update_layout(title='CPU / Memória - Cenários Alternativos', yaxis_title='%')
+        fig_s_cpu_mem.add_trace(go.Scatter(
+            x=df_futuro['date'], y=df_futuro['cpu_opt'], mode='lines', name='CPU Otimista', line=dict(dash='dash')))
+        fig_s_cpu_mem.add_trace(go.Scatter(
+            x=df_futuro['date'], y=df_futuro['cpu_pess'], mode='lines', name='CPU Pessimista', line=dict(dash='dot')))
+        fig_s_cpu_mem.add_trace(go.Scatter(
+            x=df_futuro['date'], y=df_futuro['mem_opt'], mode='lines', name='Memória Otimista', line=dict(dash='dash')))
+        fig_s_cpu_mem.add_trace(go.Scatter(
+            x=df_futuro['date'], y=df_futuro['mem_pess'], mode='lines', name='Memória Pessimista', line=dict(dash='dot')))
+        fig_s_cpu_mem.update_layout(
+            title='CPU / Memória - Cenários Alternativos', yaxis_title='%')
         st.plotly_chart(fig_s_cpu_mem, use_container_width=True)
 
     with st.expander("📈 Ver/Exportar dados previstos"):
@@ -336,11 +396,11 @@ with tab2:
         return coef, r2, nomes_coef, intercepto
 
     st.subheader("Correlação entre variáveis")
-    st.dataframe(df[['size_tb', 'cpu', 'mem'] +
+    st.dataframe(df[['size_db', 'cpu', 'mem'] +
                  variaveis_exp].corr(), height=250)
 
     st.subheader(f"Regressão Polinomial (grau {grau_regressao})")
-    for target in ['size_tb', 'cpu', 'mem']:
+    for target in ['size_db', 'cpu', 'mem']:
         coef, r2, nomes, intercepto = regressao_pol(
             variaveis_exp, target, grau_regressao)
         df_coef = pd.DataFrame({

@@ -1,4 +1,4 @@
-date,size_tb,cpu,mem,clientes_ativos,clientes_novos,clientes_excluidos,media_reports_clientes,media_reports_apps
+date,size_db,cpu,mem,clientes_ativos,clientes_novos,clientes_excluidos,media_reports_clientes,media_reports_apps
 06/03/2023,15.087,23.93,21.15,1003,5,0,2.91,4.88
 07/03/2023,14.841,23.49,20.67,1003,1,4,1.88,3.89
 08/03/2023,15.101,23.27,18.82,1012,5,0,1.27,3.71
